@@ -1,0 +1,877 @@
+---
+title: "Predcting Product Backorder"
+author: "Samiul_Islam_ID_500602494"
+date: "July 14, 2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+```
+
+## Problem definition:
+
+When a customer orders a product which is not available in the store or temporary out of stock and the customer decides to wait until the product is available and promised to be shipped, then this scenario is called backorder of that specific product. If backorders are not handled promptly it will have a high impact on the respective company's revenue, share market price, customers' trusts and may end up with loosing the customer or sale order. On the other hand, the prompt actions to satisfy backorders put enormous pressure on different stages of supply chain which may exhaust the supply chain processes or may appear with extra labor costs and associated shipment costs. Now a day, many companies are trying to predict the backorders of per unit product by applying machine learning prediction process to overcome the associated tangible and intangible costs of backorders. In this work, we try to predict the backorder by employing different machine learning models. Though the performance of different models may vary on different length and types of datasets, in this work we try to focus on big data to compare the performances of those backorder prediction models to find out the suitable algorithm to solve backorder problems.
+
+## Dataset Description:
+The dataset intends to use for this project was first published in Kaggle competition (https://drive.google.com/open?id=1Ub10bN7Ud8UF1Dsw0JBd-3q-OUVEwWKI) which is divided into training and testing datasets. Each dataset contains 23 attributes with 1687862 and 242077 observations respectively for training and testing set. Following table shows the attribute information for both datasets. 
+
+   No.	  Attribute	        Data type	    Description
+    1	    sku	              Discrete	    Product ID
+    2	    national_inv	    Discrete	    Current inventory level of different products
+    3	    lead_time	        Discrete	    The time taken from release of an order to production and shipment
+    4	    in_transit_qty	  Discrete	    Quantity of product in transit from source
+    5	    forecast_3_month	Discrete	    Forecasted sales for next 3 months
+    6	    forecast_6_month	Discrete	    Forecasted sales for next 6 months
+    7	    forecast_9_month	Discrete	    Forecasted sales for next 9 months
+    8	    sales_1_month	    Discrete	    Sales quantity for the prior 1 month
+    9	    sales_3_month	    Discrete	    Sales quantity for the prior 3 months
+    10	  sales_6_month	    Discrete	    Sales quantity for the prior 6 months
+    11	  sales_9_month	    Discrete	    Sales quantity for the prior 9 months
+    12	  min_bank	        Discrete	    Minimum recommended amount in stock
+    13	  potential_issue	  Binary	      Identified issue of products
+    14	  pieces_past_due	  Discrete	    Products overdue from source
+    15	  perf_6_month_avg	Discrete	    Source average performance in last 6 months
+    16	  perf_12_month_avg	Discrete	    Source average performance in last 12 months
+    17	  local_bo_qty	    Discrete	    Amount of overdue stock orders
+    18	  deck_risk	        Binary	      Product risk flag
+    19	  oe_constraint	    Binary	      Product risk flag
+    20	  ppap_risk	        Binary	      Product risk flag
+    21	  stop_auto_buy	    Binary	      Product risk flag
+    22	  rev_stop	        Binary	      Product risk flag
+    23	  went_on_backorder	Binary	      Product actually went on backorder
+[Binary data types:]     
+
+## Research question:
+Which machine learning model is feasible to predict future backorder that can be implemented as a part of inventory control?
+
+```{r}
+setwd("E:/SAMIUL RYERSON/MRP Project/product backorder/Backorder Prediction")
+getwd()
+```
+
+## Setup Environment
+```{r, loading required packages}
+#-----------------------------------------Initial Setup----------------------------------------------#
+#====================================================================================================#
+#create a function to check for installed packages and install them if they are not installed#
+install <- function(packages){
+  new.packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+  if (length(new.packages)) 
+    install.packages(new.packages, dependencies = TRUE)
+  sapply(packages, require, character.only = TRUE)
+}
+
+# usage
+required.packages <- c("caret","dplyr","unbalanced","scales", "pROC", "DMwR", "broom", "ggcorrplot","matrixStats", "tidyselect","ggplot2", "tidyquant", "modelr", "ROSE","gridExtra", "grid","zoo", "magrittr", "pipeR", "smotefamily")
+install(required.packages)
+options(na.action = na.warn)
+```
+
+
+
+```{r, Preparing H2o environment}
+# The following two commands remove any previously installed H2O packages for R.
+if ("package:h2o" %in% search()) { detach("package:h2o", unload=TRUE) }
+if ("h2o" %in% rownames(installed.packages())) { remove.packages("h2o") }
+```
+
+```{r,  downloading packages that H2O depends on.}
+pkgs <- c("RCurl","jsonlite")
+for (pkg in pkgs) {
+if (! (pkg %in% rownames(installed.packages()))) { install.packages(pkg) }
+}
+```
+
+```{r}
+# Now we download, install and initialize the H2O package for R.
+install.packages("h2o")
+#If the above command unable to install h2o from CRAN, enable the line below by removing number sign on the left and re-run 
+#install.packages("h2o", type="source", repos="http://h2o-release.s3.amazonaws.com/h2o/rel-wright/4/R")
+```
+
+```{r, loading H2O and start up an H2O cluster}
+
+library(h2o)
+h2o.init()
+```
+
+
+```{r, Data Loading}
+train_data = read.csv("E:/SAMIUL RYERSON/MRP Project/product backorder/backorder data/Kaggle_Training_Dataset_v2.csv", header = T)
+test_data = read.csv("E:/SAMIUL RYERSON/MRP Project/product backorder/backorder data/Kaggle_Test_Dataset_v2.csv", header = T)
+```
+
+## Exploratory Analysis
+
+```{r, checking the data structures, echo=FALSE}
+str(train_data)
+```
+
+
+```{r}
+str(test_data)
+```
+both data sets contain a mix of features with floating point, integer and string values. The trainig dataset has 1687861 observations of 23  variables and the testing dataset has 242076 observations of 23 variables.  
+
+```{r, checking the data summary, echo=FALSE}
+summary(train_data)
+```
+
+We can see from the summary of the training dataset we can observe that the first column SKU which is known as the stock keeping unit, has 1687861 unique values. That means, sku has unique values for each row of data. As this attribute is used for indexing purpose, we can ignore this column in our model.  
+```{r}
+length(train_data$sku)
+length(unique(train_data$sku))
+```
+```{r, checking for the empty record/value in each column}
+is.null(train_data)
+is.null(test_data)
+```
+
+
+```{r, checking for the missing values(NA) in each column}
+colSums(is.na(train_data))
+colSums(is.na(test_data))
+```
+
+In both datasets, we have missing values for the 'lead_time' feature. In the training dataset, there are 100894 missing values in lead_time which is 5.98% of the training data. Whereas in the testing dataset we have 14725 missing values which is 6.08% of the testing dataset. We have assumed that the missing values are put as 'NA' in these datasets.  
+
+```{r}
+barplot(main="Proportion of product backorder class", xlab="Products went to backorder", ylab = "Percentage", prop.table(table(train_data$went_on_backorder)))
+#pie(main="Proportion of product backorder class", table(train_data$went_on_backorder))
+#ggplot(train_data, aes(x = factor(1), fill = went_on_backorder)) +
+  #geom_bar(width = 1) +
+  #coord_polar(theta = "y") +
+  #labs(x = " ", y = " ")
+```
+The feature went_on_backorder contains 2 classes, "Yes" and "No". Yes class denotes that the product actually went on backorder. Unfortunately, we have only 0.669% data are from 'Yes' class and 99.33% data from 'No' class. From this we can say that our data set highly imbalanced. And, if we train our model with this imbalanced dataset, there is high possibility to have low model accuracy and efficiency. 
+
+#Principal Component Analysis
+
+To observe the dimentionality and the variance of our training dataset, we would like to perform the Principal Component Analysis.
+```{r}
+library(ggplot2)
+
+my_theme <- function(base_size = 12, base_family = "sans"){
+  theme_minimal(base_size = base_size, base_family = base_family) +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5),
+    axis.title = element_text(size = 14),
+    panel.grid.major = element_line(color = "grey"),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(fill = "aliceblue"),
+    strip.background = element_rect(fill = "navy", color = "navy", size = 1),
+    strip.text = element_text(face = "bold", size = 12, color = "white"),
+    legend.position = "right",
+    legend.justification = "top", 
+    legend.background = element_blank(),
+    panel.border = element_rect(color = "grey", fill = NA, size = 0.5)
+  )
+}
+
+theme_set(my_theme())
+
+```
+
+```{r}
+source("https://bioconductor.org/biocLite.R")
+biocLite("pcaGoPromoter")
+```
+
+```{r}
+# function for PCA plotting
+library(pcaGoPromoter)
+library(ellipse)
+
+pca_func <- function(data, groups, title, print_ellipse = TRUE) {
+  
+  # perform pca and extract scores
+  pcaOutput <- pca(data, printDropped = FALSE, scale = TRUE, center = TRUE)
+  pcaOutput2 <- as.data.frame(pcaOutput$scores)
+  
+  # define groups for plotting
+  pcaOutput2$groups <- groups
+  
+  # when plotting samples calculate ellipses for plotting (when plotting features, there are no replicates)
+  if (print_ellipse) {
+    
+    centroids <- aggregate(cbind(PC1, PC2) ~ groups, pcaOutput2, mean)
+    conf.rgn  <- do.call(rbind, lapply(unique(pcaOutput2$groups), function(t)
+      data.frame(groups = as.character(t),
+                 ellipse(cov(pcaOutput2[pcaOutput2$groups == t, 1:2]),
+                       centre = as.matrix(centroids[centroids$groups == t, 2:3]),
+                       level = 0.95),
+                 stringsAsFactors = FALSE)))
+    
+    plot <- ggplot(data = pcaOutput2, aes(x = PC1, y = PC2, group = groups, color = groups)) + 
+      geom_polygon(data = conf.rgn, aes(fill = groups), alpha = 0.2) +
+      geom_point(size = 2, alpha = 0.6) + 
+      scale_color_brewer(palette = "Set1") +
+      labs(title = title,
+           color = "",
+           fill = "",
+           x = paste0("PC1: ", round(pcaOutput$pov[1], digits = 2), "% variance"),
+           y = paste0("PC2: ", round(pcaOutput$pov[2], digits = 2), "% variance"))
+    
+  } else {
+    
+    # if there are fewer than 10 groups (e.g. the predictor classes) I want to have colors from RColorBrewer
+    if (length(unique(pcaOutput2$groups)) <= 10) {
+      
+      plot <- ggplot(data = pcaOutput2, aes(x = PC1, y = PC2, group = groups, color = groups)) + 
+        geom_point(size = 2, alpha = 0.6) + 
+        scale_color_brewer(palette = "Set1") +
+        labs(title = title,
+             color = "",
+             fill = "",
+             x = paste0("PC1: ", round(pcaOutput$pov[1], digits = 2), "% variance"),
+             y = paste0("PC2: ", round(pcaOutput$pov[2], digits = 2), "% variance"))
+      
+    } else {
+      
+      # otherwise use the default rainbow colors
+      plot <- ggplot(data = pcaOutput2, aes(x = PC1, y = PC2, group = groups, color = groups)) + 
+        geom_point(size = 2, alpha = 0.6) + 
+        labs(title = title,
+             color = "",
+             fill = "",
+             x = paste0("PC1: ", round(pcaOutput$pov[1], digits = 2), "% variance"),
+             y = paste0("PC2: ", round(pcaOutput$pov[2], digits = 2), "% variance"))
+      
+    }
+  }
+  
+  return(plot)
+  
+}
+
+```
+
+```{r}
+p1 <- pca_func(data = t(training_dataset[, 1:21]), groups = as.character(training_dataset$went_on_backorder), title = "Backorder training dataset: Samples")
+#plot(p1)
+p2 <- pca_func(data = training_dataset[, 1:21], groups = as.character(colnames(training_dataset[, 1:21])), title = "Backorder training dataset: Features", print_ellipse = FALSE)
+#plot(p2)
+grid.arrange(p1, p2, ncol = 2)
+```
+
+#Correspondence Analysis
+
+```{r}
+install.packages(c("FactoMineR", "factoextra"))
+library("FactoMineR")
+library("factoextra")
+```
+
+
+```{r}
+source("http://goo.gl/UUyEzD")
+outlierKD(training_dataset, lead_time )
+# ref: Klodian Dhana, Identify, describe, plot, and remove the outliers from the dataset, April 30, 2016.
+
+```
+```{r}
+#correspondence analysis
+backorder_correspondence <- train_data[, c(13,18:23)]
+head(backorder_correspondence[, 1:7], 3)
+summary(backorder_correspondence)[, 1:7]
+```
+```{r}
+backorder.mca <- MCA(backorder_correspondence, graph = FALSE)
+fviz_screeplot(backorder.mca, addlabels = TRUE, ylim = c(0, 45))
+
+```
+
+
+```{r, Principal Dimensions of Correlated Variables}
+fviz_mca_var(backorder.mca, choice = "mca.cor", 
+            repel = F,  
+            ggtheme = theme_minimal())
+```
+
+#Hypothesis Testing:
+
+```{r, confusion matrix for Stock level and backorder relation null hypothesis}
+TP <-length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & abs(train_data$national_inv == 0))])
+FP <-length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & abs(train_data$national_inv > 0))])
+
+TN <-length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & abs(train_data$national_inv > 0))]) 
+FN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No"& abs(train_data$national_inv == 0))]) 
+con_matrix_nullhypo1 <- matrix(c(TP,FP,FN,TN),2,byrow=TRUE)
+print(con_matrix_nullhypo1)
+```
+```{r}
+chisq.test(con_matrix_nullhypo1)
+```
+
+```{r}
+# Precision: tp/(tp+fp):
+Precision <- con_matrix_nullhypo1[1,1]/sum(con_matrix_nullhypo1[1,1:2])
+Precision
+```
+
+
+```{r}
+# Precision: tp/(tp+fp):
+Precision <- con_matrix_nullhypo1[1,1]/sum(con_matrix_nullhypo1[1,1:2])
+Precision
+```
+```{r}
+# Recall: tp/(tp + fn):
+Recall <- con_matrix_nullhypo1[1,1]/sum(con_matrix_nullhypo1[1:2,1])
+Recall
+```
+```{r}
+# F-Score: 2 * precision * recall /(precision + recall):
+2 * Precision * Recall /(Precision + Recall)
+```
+
+
+```{r, confusion matrix for last 1 month selling trend and backorder relation null hypothesis}
+TP <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & abs(train_data$sales_1_month >= mean(train_data$sales_1_month)))])
+FP <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & abs(train_data$sales_1_month <=mean(train_data$sales_1_month)))]) 
+TN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & abs(train_data$sales_1_month <=mean(train_data$sales_1_month)))]) 
+FN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & abs(train_data$sales_1_month >=mean(train_data$sales_1_month)))]) 
+con_matrix_nullhypo2 <- matrix(c(TP,FP,FN,TN),2,byrow=TRUE); con_matrix_nullhypo2
+```
+```{r}
+chisq.test(con_matrix_nullhypo2)
+```
+
+```{r}
+# Precision: tp/(tp+fp):
+Precision2 <- con_matrix_nullhypo2[1,1]/sum(con_matrix_nullhypo2[1,1:2])
+Precision2
+```
+```{r}
+# Recall: tp/(tp + fn):
+Recall2 <- con_matrix_nullhypo2[1,1]/sum(con_matrix_nullhypo2[1:2,1])
+Recall2
+```
+```{r}
+# F-Score: 2 * precision * recall /(precision + recall):
+2 * Precision2 * Recall2 /(Precision2 + Recall2)
+```
+
+```{r, Confusion matrix for operational constraint and backorder Null hypothesis}
+TP <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & train_data$oe_constraint =="Yes")])
+FP <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & train_data$oe_constraint =="No")])
+TN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & train_data$oe_constraint =="No")])
+FN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & train_data$oe_constraint =="Yes")])
+con_matrix_nullhypo3 <- matrix(c(TP,FP,FN,TN),2,byrow=TRUE); con_matrix_nullhypo3
+
+```
+```{r}
+chisq.test(con_matrix_nullhypo3)
+```
+
+
+```{r, Confusion matrix for potential product issues and backorder Null hypothesis}
+TP <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & train_data$potential_issue =="Yes")])
+FP <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="Yes" & train_data$potential_issue =="No")])
+TN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & train_data$potential_issue =="No")])
+FN <- length(train_data$went_on_backorder[which(train_data$went_on_backorder=="No" & train_data$potential_issue =="Yes")])
+con_matrix_nullhypo4 <- matrix(c(TP,FP,FN,TN),2,byrow=TRUE); con_matrix_nullhypo4
+
+```
+
+```{r}
+chisq.test(con_matrix_nullhypo4)
+```
+
+
+
+```{}
+num_variables <- na.omit(train_data[,c(2:12,14:17,23)])
+#estimated_importance <- iv.mult(num_variables, y="went_on_backorder", summary=TRUE, verbose=TRUE)
+
+#iv <- iv.mult(num_variables, y="went_on_backorder", summary=FALSE, verbose=TRUE)
+#iv.plot.summary(estimated_importance)
+```
+
+```{}
+library(Boruta)
+# Decide if a variable is important or not using Boruta
+Model_Boruta <- Boruta(went_on_backorder ~ ., data=na.omit(num_variables), doTrace=2)  # perform Boruta search
+significant_variables <- names(Model_Boruta$finalDecision[Model_Boruta$finalDecision %in% c("Confirmed", "Tentative")])  # collect Confirmed and Tentative variables
+print(significant_variables)  # significant variables
+plot(significant_variables, cex.axis=.7, las=2, xlab="", main="Variable Importance")
+```
+
+## Methodology and Experiment
+# Data Cleaning and Preprocessing
+
+```{r, Replacing missing values with mean }
+library('zoo')
+write <- sapply(train_data, is.numeric)
+train_data[write] <- lapply(train_data[write], na.aggregate)
+mean(train_data$lead_time)
+```
+We have replaced the NA values with the mean in the training dataset and we leave the testing data set as it is purposely.
+```{r, cheking percentage of non-empty records in the datasets}
+library(magrittr)
+train_data %>% complete.cases() %>% sum()*100 / nrow(train_data)
+#test_data %>% complete.cases() %>% sum()*100 / nrow(test_data)
+```
+Now our training dataset does not have any empty or NA values. From the summary, we have also observed that the number products those went on backorder is 9109 among the 1350288 observations.  which is 0.67% of the training data and is  relatively small to the prodcts those did not go on backorder. 
+```{r}
+table(train_data$went_on_backorder)
+```
+
+
+
+# Training, Testing and Validation set
+Though we have separated training and testing datasets, we would like to create another validation dataset from the training dataset. The idea of this validation set is to tune the parameters of our classifier/model before actual exposed to the actual test set so that the model can perform the test with minimum error and work efficiently.
+
+```{r, dividing the training set in to training and validation set}
+
+percnt_div <- 0.80
+n <- nrow(train_data)
+partition_size <- floor(percnt_div * n)
+
+set.seed(753)
+train_index <- sample(1:n, size = partition_size)
+
+validation_dataset <- train_data[-train_index,]
+train_dataset <- train_data[train_index,]
+```
+ We have divided our training dataset into 80 and 20 percent randomly. Hence total observation of our training dataset becomes 1350288 and we have now a new validation dataset with 337573 observations.
+ 
+```{r, Dataset mutation}
+install.packages("stringi")
+require("tidyselect")
+require("tidyverse")
+```
+
+```{r}
+
+library(rlang)
+library(dplyr)
+data_mutation <- function(data) {
+    data %>%
+        select(-sku) %>%
+        drop_na(national_inv) %>%
+        mutate(lead_time = ifelse(is.na(lead_time), -99, lead_time)) %>%
+        mutate_if(is.factor, .funs = function(x) ifelse(x == "Yes", 1, 0)) %>%
+        mutate(went_on_backorder = as.factor(went_on_backorder))
+}
+
+training_dataset <- data_mutation(train_dataset) 
+validation_dataset <- data_mutation(validation_dataset) 
+testing_dataset  <- data_mutation(test_data)
+
+str(training_dataset)
+```
+
+As the feature 'sku' is used only for the record indexing purpose, we have dropped this feature from our datasets. Also we want to make sure that the products' current inventory level contains a value.  
+
+#Resolving Imbalance Class Problem
+```{r, balancing the dataset using synthetic minority over-sampling technique}
+library(smotefamily)
+library(unbalanced)
+input  <- training_dataset %>% select(-went_on_backorder)
+output <- training_dataset$went_on_backorder 
+balanced_training_data <- ubSMOTE(input, output, perc.over = 150, perc.under = 200, k = 7)
+```
+
+```{r, balancing the dataset using synthetic minority over-sampling technique}
+input  <- validation_dataset %>% select(-went_on_backorder)
+output <- validation_dataset$went_on_backorder 
+balanced_validation_data <- ubSMOTE(input, output, perc.over = 150, perc.under = 200, k = 7)
+```
+
+
+```{r}
+# Recombine the synthetic balanced data
+new_training_dataset <- bind_cols(as.tibble(balanced_training_data$X), tibble(went_on_backorder = balanced_training_data$Y))
+new_validation_dataset <- bind_cols(as.tibble(balanced_validation_data$X), tibble(went_on_backorder = balanced_validation_data$Y))
+```
+We have replaced the 'Yes' with 1 and 'No' with 0 in our datasets.After applying the SMOTE, we have achieved 50-50 class values in our training dataset by tuning the perc.over and perc.under values. We have also used K nearest neighbour or KNN approach and in our case we have chosen the  nearest neighbour number as 7 when we have generated new artificial observations. 
+```{r}
+prop.table(table(new_training_dataset$went_on_backorder))
+prop.table(table(new_validation_dataset$went_on_backorder))
+```
+As this synthetically derived training set has lower observation numbers (36436) in compare to the actual training set observations(1350288), we have decided to examine another data balancing method for the experimental purpose. In this case, we have used Random Over-Sampling Examples known as ROSE. This technique has provided us almost perfect balancing of classes by keeping the number of observations same.
+```{r}
+library(ROSE)
+
+set.seed(4021)
+rose_train <- ROSE(went_on_backorder ~ ., data  = training_dataset)$data
+rose_validation <- ROSE(went_on_backorder ~ ., data  = validation_dataset)$data
+prop.table(table(rose_train$went_on_backorder)) 
+```
+
+
+```{r}
+h2o.no_progress()
+```
+
+Our data sets are in data frame format and h2o require the data in the h2o frame format. So we have converted the datasets in to h2o frame.
+
+```{r, SMOTE h2o dataframe}
+h2o_train_data_smote <- as.h2o(new_training_dataset)
+h2o_validation_data_smote <- as.h2o(validation_dataset)
+h2o_test_data_smote  <- as.h2o(testing_dataset)
+```
+
+```{r, ROSE h2o dataframe}
+h2o_train_data_rose <- as.h2o(rose_train)
+h2o_validation_data_rose <- as.h2o(rose_validation)
+h2o_test_data_rose  <- as.h2o(testing_dataset)
+```
+
+
+```{r, h2o modeling smote}
+
+y <- "went_on_backorder"
+x <- setdiff(names(h2o_train_data_smote), y)
+
+h2o_model_smote <- h2o.automl(
+    x = x, 
+    y = y,
+    training_frame    = h2o_train_data_smote,
+    validation_frame  = h2o_validation_data_smote,
+    leaderboard_frame = h2o_test_data_smote,
+    max_runtime_secs  = 95
+)
+```
+
+```{r, h2o modeling rose}
+
+y1 <- "went_on_backorder"
+x1 <- setdiff(names(h2o_train_data_rose), y1)
+
+h2o_model_rose <- h2o.automl(
+    x = x1, 
+    y = y1,
+    training_frame    = h2o_train_data_rose,
+    validation_frame  = h2o_validation_data_rose,
+    leaderboard_frame = h2o_test_data_rose,
+    max_runtime_secs  = 95
+)
+```
+
+```{r}
+summary(h2o_leader_smote)
+```
+
+```{r}
+h2o_leader_smote <- h2o_model_smote@leader
+h2o_leader_smote
+saveRDS(h2o_leader_smote, "E:/SAMIUL RYERSON/MRP Project/product backorder/Backorder Prediction/h2o_leader_smote.rds")
+```
+
+```{r}
+h2o_leader_rose <- h2o_model_rose@leader
+h2o_leader_rose
+saveRDS(h2o_leader_rose, "E:/SAMIUL RYERSON/MRP Project/product backorder/Backorder Prediction/h2o_leader_rose.rds")
+```
+
+```{r}
+readRDS("E:/SAMIUL RYERSON/MRP Project/product backorder/Backorder Prediction/h2o_leader_smote.rds")
+h2o_model_prediction_smote <- h2o.predict(h2o_leader_smote, newdata = h2o_test_data_smote)
+as.tibble(h2o_model_prediction_smote)
+```
+
+```{r}
+readRDS("E:/SAMIUL RYERSON/MRP Project/product backorder/Backorder Prediction/h2o_leader_rose.rds")
+h2o_model_prediction_rose <- h2o.predict(h2o_leader_rose, newdata = h2o_test_data_rose)
+as.tibble(h2o_model_prediction_rose)
+```
+
+```{r, preformance measure smote }
+performance_h2o_model_smote <- h2o.performance(h2o_leader_smote, newdata = h2o_test_data_smote) 
+```
+
+```{r, preformance measure rose }
+performance_h2o_model_rose <- h2o.performance(h2o_leader_rose, newdata = h2o_test_data_rose) 
+```
+
+```{r, performance metric smote}
+h2o.metric(performance_h2o_model_smote) %>% as.tibble() %>% glimpse()
+```
+
+```{r, performance metric rose}
+h2o.metric(performance_h2o_model_rose) %>% as.tibble() %>% glimpse()
+```
+
+
+```{r, performance visualization using ROC or receiver operating chareacteristic smote}
+library(tidyquant)
+left_join(h2o.tpr(performance_h2o_model_smote), h2o.fpr(performance_h2o_model_smote)) %>%
+    mutate(random_guess = fpr) %>%
+    select(-threshold) %>%
+    ggplot(aes(x = fpr)) + 
+    geom_area(aes(y = tpr, fill = "Area Under the Curve"), alpha = 0.5) +
+    geom_point(aes(y = tpr, color = "True Positive Rates"), alpha = 0.25) +
+    geom_line(aes(y = random_guess, color = "Random Guess"), size = 1, linetype = 2) +
+    theme_tq() +
+    scale_color_manual(
+        name = "Key", 
+        values = c("True Positive Rates" = palette_dark()[[1]],
+                   "Random Guess" = palette_dark()[[2]])
+        ) +
+    scale_fill_manual(name = "Fill", values = c("Area Under the Curve" = palette_dark()[[9]])) +
+    labs(title = "ROC Curve of GBM Prediction Model on H2O Platform", subtitle = "GBM model's performance is more efficient than random guessing") + xlab("False Positive Rates")+ ylab("True Positive Rates")+
+    annotate("text", x = 0.25, y = 0.65, label = "More efficient than guessing") +
+    annotate("text", x = 0.75, y = 0.25, label = "Less efficient than guessing")
+```
+
+```{r, performance visualization using ROC or receiver operating chareacteristic rose}
+left_join(h2o.tpr(performance_h2o_model_rose), h2o.fpr(performance_h2o_model_rose)) %>%
+    mutate(random_guess = fpr) %>%
+    select(-threshold) %>%
+    ggplot(aes(x = fpr)) + 
+    geom_area(aes(y = tpr, fill = "Area Under the Curve"), alpha = 0.5) +
+    geom_point(aes(y = tpr, color = "True Positive Rates"), alpha = 0.25) +
+    geom_line(aes(y = random_guess, color = "Random Guess"), size = 1, linetype = 2) +
+    theme_tq() +
+    scale_color_manual(
+        name = "Key", 
+        values = c("True Positive Rates" = palette_dark()[[1]],
+                   "Random Guess" = palette_dark()[[2]])
+        ) +
+    scale_fill_manual(name = "Fill", values = c("Area Under the Curve" = palette_dark()[[8]])) +
+    labs(title = "ROC Curve of Rejected DRF Model", subtitle = "DRF Model performance is almost as efficient as random guessing, hence rejected") + xlab("False Positive Rates")+ ylab("True Positive Rates")+
+    annotate("text", x = 0.25, y = 0.65, label = "More efficient than guessing") +
+    annotate("text", x = 0.75, y = 0.25, label = "Less efficient than guessing")
+```
+```{r, models AUC}
+h2o.auc(performance_h2o_model_smote)
+```
+```{r, models AUC}
+h2o.auc(performance_h2o_model_rose)
+```
+
+
+```{r}
+# predictions are based on p1_cutoff
+as.tibble(h2o_model_prediction_smote)
+```
+
+
+```{r}
+# Algorithm uses p1_cutoff that maximizes F1
+h2o.F1(performance_h2o_model_smote) %>%
+    as.tibble() %>%
+    filter(f1 == max(f1))
+```
+```{r}
+ #Full list of thresholds at various performance metrics
+performance_h2o_model_smote@metrics$max_criteria_and_metric_scores
+```
+
+
+
+
+```{r}
+# Plot recall and precision vs threshold, visualize inventory strategy effect in smote
+left_join(h2o.recall(performance_h2o_model_smote), h2o.precision(performance_h2o_model_smote)) %>%
+    rename(recall = tpr) %>%
+    gather(key = key, value = value, -threshold) %>%
+    ggplot(aes(x = threshold, y = value, color = key)) +
+    geom_point(alpha = 0.5) +
+    scale_color_tq() +
+    theme_tq() +
+    labs(title = 'Inventory Decision Based on Different Threshold ("Yes" Threshold)',
+         subtitle = "Inventory strategies are more relaxed in the lower cutoff areas",
+         x = 'Cutoff (decision points above which went_on_backorder = "Yes")',
+         y = "Precision and Recall Values"
+         ) +
+    # p>=0
+    geom_vline(xintercept = 0, color = palette_light()[[2]], size = 1) +
+    annotate("text", x = 0.12, y = 0.75, size = 3,
+             label = 'p1 >= 0: "Yes"\nInventory\nEverything') +
+    geom_segment(x = 0, y = 0.7, xend = 0.02, yend= 0.72, color = palette_light()[[2]], size = 1) +
+    # p>=0.25
+    geom_vline(xintercept = 0.25, color = palette_light()[[2]], size = 1) +
+    annotate("text", x = 0.37, y = 0.35, size = 3,
+             label = 'p1 >= 0.25: "Yes"\nInventory Anything\nWith Chance\nof Backorder') +
+    geom_segment(x = 0.25, y = 0.30, xend = 0.27, yend= 0.32, color = palette_light()[[2]], size = 1) +
+    # p>=0.5
+    geom_vline(xintercept = 0.5, color = palette_light()[[2]], size = 1) +
+    annotate("text", x = 0.62, y = 0.75, size = 3,
+             label = 'p1 >= 0.50: "Yes"\nInventory\nProbability\nSplit 50/50') +
+    geom_segment(x = 0.5, y = 0.70, xend = 0.52, yend= 0.72, color = palette_light()[[2]], size = 1) +
+    # p>=0.75
+    geom_vline(xintercept = 0.75, color = palette_light()[[2]], size = 1) +
+    annotate("text", x = 0.87, y = 0.75, size = 3,
+             label = 'p1 >= 0.75: "Yes"\nInventory Very\nConservatively\n(Most Likely Backorder)') +
+    geom_segment(x = 0.75, y = 0.70, xend = 0.77, yend= 0.72, color = palette_light()[[2]], size = 1) +
+    # p>=1
+    geom_vline(xintercept = 1, color = palette_light()[[2]], size = 1) +
+    annotate("text", x = 0.87, y = 0.22, size = 3,
+             label = 'p1 >= 1.00: "Yes"\nInventory Nothing') +
+    geom_segment(x = 1.00, y = 0.23, xend = 0.98, yend= 0.21, color = palette_light()[[2]], size = 1) 
+```
+
+
+```{r, confusion matrix}
+#  As from the model metrics we got maximum F1 thresold 0.841836, we assume that p1_cutoff = 0.84  
+h2o.confusionMatrix(performance_h2o_model_smote)
+```
+
+```{r, Features considered for Predictive Model}
+h2o.varimp_plot(h2o_leader_smote, num_of_features = NULL)
+```
+
+
+
+```{r, We also can get expected rates by cutoff}
+
+expected_rates <- h2o.metric(performance_h2o_model_smote) %>%
+    as.tibble() %>%
+    select(threshold, tpr, fpr, fnr, tnr)
+expected_rates
+```
+
+
+
+
+```{r, Cost/benefit for first item}
+
+first_item <- h2o_model_prediction_smote %>%
+    as.tibble() %>%
+    slice(1) %>%
+    add_column(
+        cb_tn = 0,
+        cb_tp = 400,
+        cb_fp = -10,
+        cb_fn = 0
+        )
+first_item
+```
+
+
+```{r}
+# Function to calculate expected profit
+calc_expected_profit <- function(p1, cb_tp, cb_fp) {
+    # p1    = Set of predictions with "predict", "p0", and "p1" columns
+    # cb_tp = Benefit (profit) from true positive (correctly identifying backorder)
+    # cb_fp = Cost (expense) from false negative (incorrectly inventorying)
+    
+    tibble(
+        p1    = p1,
+        cb_tp = cb_tp,
+        cb_fp = cb_fp
+        ) %>%
+        # Add in expected rates
+        mutate(expected_rates = list(expected_rates)) %>%
+        unnest() %>%
+        mutate(
+            expected_profit = p1 * (tpr * cb_tp) + (1 - p1) * (fpr * cb_fp)
+        ) %>%
+        select(threshold, expected_profit)
+}
+
+# Investigate a expected profit of item with low probability of backorder
+hypothetical_low <- calc_expected_profit(p1 = 0.01, cb_tp = 400, cb_fp = -10)
+hypothetical_low_max <- filter(hypothetical_low, expected_profit == max(expected_profit))
+
+hypothetical_low %>%
+    ggplot(aes(threshold, expected_profit, color = expected_profit)) + ylab("Predicted Revenue per Unit") + xlab("Thresold value")+
+    geom_point() +
+    geom_hline(yintercept = 0, color = "red") +
+    geom_vline(xintercept = hypothetical_low_max$threshold, color = palette_light()[[1]]) +
+    theme_tq() +
+    scale_color_continuous(low = palette_light()[[3]], high = palette_light()[[12]]) +
+    labs(title = "Predicted Revenue Curve for the Products with Low Backorder Probability" ,
+         caption  = paste0('Maximum threshold = ', hypothetical_low_max$threshold %>% round (2))
+         )
+
+```
+
+
+```{r}
+# Investigate a expected profit of item with high probability of backorder
+hypothetical_high <- calc_expected_profit(p1 = 0.8, cb_tp = 400, cb_fp = -10)
+hypothetical_high_max <- filter(hypothetical_high, expected_profit == max(expected_profit))
+
+hypothetical_high %>%
+    ggplot(aes(threshold, expected_profit, color = expected_profit)) + ylab("Predicted Revenue per Unit") + xlab("Thresold value")+
+    geom_point() +
+    geom_hline(yintercept = 0, color = "red") +
+    geom_vline(xintercept = hypothetical_high_max$threshold, color = palette_light()[[1]]) +
+    theme_tq() +
+    scale_color_continuous(low = palette_light()[[4]], high = palette_light()[[12]]) +
+    labs(title = "Predicted Revenue Curve for the Products with High Backorder Probability",
+         caption  = paste0('Maximum threshold = ', hypothetical_high_max$threshold %>% round (2))
+         )
+```
+
+
+```{r}
+# Generating Seven Hypothetical Items
+seven_items <- tribble(
+    ~"item", ~"p1",  ~"cb_tp", ~"cb_fp", ~"safety_stock",
+    1,       0.02,      10,    -0.75,    100,
+    2,       0.79,      7.5,   -0.75,    35,
+    3,       0.65,      8.5,   -0.75,    75,
+    4,       0.51,      25,    -2.5,     50,
+    5,       0.10,      15,    -0.5,     150,
+    6,       0.29,      400,   -25,      5,
+    7,       0.45,      17.5,  -5,       25
+   
+   
+    )
+seven_items
+```
+
+
+```{r}
+# Calculation of expected profit for each of the seven items at each threshold
+extended_expected_profit_seven_items <- seven_items %>%
+    # pmap to map calc_expected_profit() to each item
+    mutate(expected_profit = pmap(.l = list(p1, cb_tp, cb_fp), .f = calc_expected_profit)) %>%
+    unnest() %>%
+    rename(expected_profit_per_unit = expected_profit) %>%
+    # Calculate 100% safety stock repurchase and sell
+    mutate(expected_profit_extended = expected_profit_per_unit * 1 * safety_stock) %>%
+    select(item, p1, threshold, expected_profit_extended) 
+extended_expected_profit_seven_items
+```
+
+
+```{r}
+# Visualizing Expected Profit 
+extended_expected_profit_seven_items %>%
+    ggplot(aes(threshold, expected_profit_extended, 
+               color = factor(item)), 
+               group = item) + ylab("Expected Profits") + xlab("Thresold Value")+
+    geom_line(size = 1) +
+    theme_tq() +
+    scale_color_tq() +
+    labs(
+        title = "Expected Item-wise Profit Curves",
+        subtitle = "Visualizing the expected profit curves for each item based on quantity to be purchased and sold",
+        color = "Item No." 
+    )
+```
+
+
+```{r, Total extended expected profit based on thresold}
+total_expected_profit_seven_items <- extended_expected_profit_seven_items %>%
+    group_by(threshold) %>%
+    summarise(expected_profit_total = sum(expected_profit_extended)) 
+
+# Get maximum (optimal) threshold
+max_expected_profit <- total_expected_profit_seven_items %>%
+    filter(expected_profit_total == max(expected_profit_total))
+
+# Visualize the total expected profit curve
+total_expected_profit_seven_items %>%
+    ggplot(aes(threshold, expected_profit_total)) + xlab("Thresold value") + ylab("Aggregated expected profit")+
+    geom_line(size = 1, color = palette_light()[[1]]) +
+    geom_vline(xintercept = max_expected_profit$threshold, color = palette_light()[[1]]) +
+    theme_tq() +
+    scale_color_tq() +
+    labs(
+        title = "Expected Aggregated Profit Curve",
+        subtitle = "We can achieve optimal strategy by summing up the curves by threshold",
+        caption  = paste0('Maximum threshold = ', max_expected_profit$threshold %>% round (2))
+    )
+```
+
